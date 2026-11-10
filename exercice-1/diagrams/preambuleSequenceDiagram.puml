@@ -32,18 +32,24 @@ deactivate main
 thread1 -> mutex:pthread mutex lock
 activate mutex #plum
 return
+note over mutex : 0
 
 thread1 -> mutex:pthread mutex unlock
 activate mutex #plum
 return
+note over mutex : 1
 
 thread1 -> semaphore:sem post
 activate semaphore #gold
 return
+note over semaphore : 1
+
 
 thread1 -> semaphore:sem wait
 activate semaphore #gold
 return 
+note over semaphore : 0
+
 
 thread1 -> thread1:pthread exit
 thread1 --> main --++
