@@ -19,11 +19,15 @@ static void *display( void *parameters );
 
 
 void displayManagerInit(void){
-	//TODO
+
+	// a faire
+	pthread_create(&displayThread, ...); 
+	return NULL; 
 }
 
 void displayManagerJoin(void){
-	//TODO	
+	// a faire 
+	pthread_join(displayThread, NULL);
 } 
 
 static void *display( void *parameters )
