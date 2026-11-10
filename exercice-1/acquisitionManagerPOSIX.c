@@ -22,12 +22,16 @@ static void *produce(void *params);
 /**
 * Semaphores and Mutex
 */
-//TODO
+// TODO create the semaphore and mutex to protect the produceCount and the message buffer.
+static sem_t *semaphore;
+pthread_mutex_t bufferMutex = PTHREAD_MUTEX_INITIALIZER;
 
 /*
 * Creates the synchronization elements.
 * @return ERROR_SUCCESS if the init is ok, ERROR_INIT otherwise
 */
+
+
 static unsigned int createSynchronizationObjects(void);
 
 /*
