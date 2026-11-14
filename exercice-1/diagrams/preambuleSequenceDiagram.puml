@@ -20,6 +20,8 @@ return
 main -> semaphore:sem open
 activate semaphore #gold
 return
+note over semaphore : 0
+note over mutex : 1
 
 main -> thread1:pthread create
 activate thread1 #FFBBBB
