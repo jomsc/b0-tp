@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <semaphore.h> 
+#include <semaphore.h>
 #include <unistd.h>
 #include <pthread.h>
 #include "messageAdder.h"
@@ -16,6 +16,8 @@ pthread_t consumer;
 volatile MSG_BLOCK out;
 //Consumer count storage
 volatile unsigned int consumeCount = 0;
+//Protects out and consumeCount together
+static pthread_mutex_t sumMutex = PTHREAD_MUTEX_INITIALIZER;
 
 /**
  * Increments the consume count.
@@ -28,12 +30,25 @@ static void incrementConsumeCount(void);
 static void *sum( void *parameters );
 
 
+static void incrementConsumeCount(void){
+	//Called with sumMutex held
+	consumeCount++;
+}
+
 MSG_BLOCK getCurrentSum(){
-	//TODO
+	MSG_BLOCK s;
+	pthread_mutex_lock(&sumMutex);
+	s = out;
+	pthread_mutex_unlock(&sumMutex);
+	return s;
 }
 
 unsigned int getConsumedCount(){
-	//TODO
+	unsigned int c;
+	pthread_mutex_lock(&sumMutex);
+	c = consumeCount;
+	pthread_mutex_unlock(&sumMutex);
+	return c;
 }
 
 
@@ -43,24 +58,31 @@ void messageAdderInit(void){
 	{
 		out.mData[i] = 0;
 	}
-	//TODO
+	pthread_create(&consumer, NULL, sum, NULL);
 }
 
 void messageAdderJoin(void){
-	//TODO
+	pthread_join(consumer, NULL);
+	pthread_mutex_destroy(&sumMutex);
 }
 
 static void *sum( void *parameters )
 {
-	D(printf("[messageAdder]Thread created for sum with id %d\n", gettid()));
+	(void)parameters;
+	MSG_BLOCK msg;
+	D(printf("[messageAdder]Thread created for sum\n"));
 	unsigned int i = 0;
 	while(i<ADDER_LOOP_LIMIT){
 		i++;
 		sleep(ADDER_SLEEP_TIME);
-		//TODO
+		//Blocking until a message is available
+		msg = getMessage();
+		//Sum and count updated in the same critical section (coherence)
+		pthread_mutex_lock(&sumMutex);
+		messageAdd(&out, &msg);
+		incrementConsumeCount();
+		pthread_mutex_unlock(&sumMutex);
 	}
-	printf("[messageAdder] %d termination\n", gettid());
-	//TODO
+	printf("[messageAdder] termination\n");
+	pthread_exit(NULL);
 }
-
-

@@ -9,6 +9,9 @@
 #include "multitaskingAccumulator.h"
 #include "debug.h"
 
+//Total number of messages expected
+#define TOTAL_MESSAGES (PRODUCER_LOOP_LIMIT * PRODUCER_COUNT)
+
 // DisplayManager thread.
 pthread_t displayThread;
 
@@ -19,27 +22,37 @@ static void *display( void *parameters );
 
 
 void displayManagerInit(void){
-
-	// a faire
-	pthread_create(&displayThread, NULL, display, parameters);
-	
+	pthread_create(&displayThread, NULL, display, NULL);
 }
 
 void displayManagerJoin(void){
-	// a faire 
 	pthread_join(displayThread, NULL);
-} 
+}
 
 static void *display( void *parameters )
 {
-	D(printf("[displayManager]Thread created for display with id %d\n", gettid()));
-	unsigned int diffCount = 0;
-	while(diffCount < DISPLAY_LOOP_LIMIT){
+	(void)parameters;
+	MSG_BLOCK s;
+	unsigned int c1, c2, p;
+	D(printf("[displayManager]Thread created for display\n"));
+	unsigned int consumed = 0;
+	while(consumed < TOTAL_MESSAGES){
 		sleep(DISPLAY_SLEEP_TIME);
 
-		// Afficher le message 
-		//TODO
+		//Coherent snapshot of {sum, consumed count}:
+		//retry if a sum happened between the two reads
+		do {
+			c1 = getConsumedCount();
+			s = getCurrentSum();
+			c2 = getConsumedCount();
+		} while (c1 != c2);
+		//Read last: produced >= consumed
+		p = getProducedCount();
+
+		messageDisplay(&s);
+		print(p, c1);
+		consumed = c1;
 	}
-	printf("[displayManager] %d termination\n", gettid());
-   //TODO
+	printf("[displayManager] termination\n");
+	pthread_exit(NULL);
 }

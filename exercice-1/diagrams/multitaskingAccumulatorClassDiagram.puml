@@ -1,23 +1,33 @@
 @startuml
 
 dataclass MSG_BLOCK
+MSG_BLOCK : + checksum: Integer
+MSG_BLOCK : + mData[DATA_SIZE]: Integer
 
 class MultitaskingAccumulator
 MultitaskingAccumulator : + main()
 
 interface ISensor
-ISensor : + getInput(int i): MSG_BLOCK
+ISensor : + getInput(int i, MSG_BLOCK* mBlock)
 
 interface IAcquisitionManager
 IAcquisitionManager : + getProducedCount(): Integer
-IAcquisitionManager : + getMessage():MSG_BLOCK
+IAcquisitionManager : + getMessage(): MSG_BLOCK
 
 class AcquisitionManager
-AcquisitionManager : - producers[4]: pthread_t
-AcquisitionManager : - m1: pthread_mutex_t
+AcquisitionManager : - producers[PRODUCER_COUNT]: pthread_t
+AcquisitionManager : - buffer[BUFFER_SIZE]: MSG_BLOCK
+AcquisitionManager : - writeIdx: Integer
+AcquisitionManager : - readIdx: Integer
+AcquisitionManager : - writeIdxMutex: pthread_mutex_t
+AcquisitionManager : - countMutex: pthread_mutex_t
+AcquisitionManager : - semFree: sem_t (init BUFFER_SIZE)
+AcquisitionManager : - slotFull[BUFFER_SIZE]: sem_t (init 0)
 AcquisitionManager : - producedCount: Integer
 AcquisitionManager : - produce()
-AcquisitionManager : + acquisitionManagerInit()
+AcquisitionManager : - createSynchronizationObjects(): Integer
+AcquisitionManager : - incrementProducedCount()
+AcquisitionManager : + acquisitionManagerInit(): Integer
 AcquisitionManager : + acquisitionManagerJoin()
 
 interface IMessageAdder
@@ -28,29 +38,32 @@ class MessageAdder
 MessageAdder : - consumer: pthread_t
 MessageAdder : - currentSum: MSG_BLOCK
 MessageAdder : - consumedCount: Integer
+MessageAdder : - sumMutex: pthread_mutex_t
 MessageAdder : - sum()
+MessageAdder : - incrementConsumeCount()
 MessageAdder : + messageAdderInit()
 MessageAdder : + messageAdderJoin()
 
 class Msg
-Msg : + messageAdd()
-Msg : + messageCheck()
+Msg : + messageAdd(MSG_BLOCK* src, MSG_BLOCK* add)
+Msg : + messageCheck(MSG_BLOCK* mBlock): Integer
 
 interface IDisplay
 IDisplay : + messageDisplay(MSG_BLOCK mBlock)
 IDisplay : + print(Integer producedCount, Integer consumedCount)
 
 class DisplayManager
-DisplayManager : - display: pthread_t
+DisplayManager : - displayThread: pthread_t
 DisplayManager : - display()
 DisplayManager : + displayManagerInit()
 DisplayManager : + displayManagerJoin()
 
 AcquisitionManager .d.> ISensor : use
 AcquisitionManager .r.|> IAcquisitionManager : implement
+AcquisitionManager ..> Msg : use (messageCheck)
 
 MessageAdder .r.|> IMessageAdder : implement
-MessageAdder *-d- Msg 
+MessageAdder *-d- Msg
 
 DisplayManager .d.|> IDisplay : implement
 
@@ -58,6 +71,7 @@ MessageAdder ..> IAcquisitionManager : use
 DisplayManager ..> IMessageAdder : use
 DisplayManager ..> IAcquisitionManager : use
 
+AcquisitionManager ..> MSG_BLOCK : use
 
 MultitaskingAccumulator *-r- AcquisitionManager : 1
 MultitaskingAccumulator *-r- MessageAdder : 1

@@ -1,69 +1,205 @@
-
--------
-
-
 @startuml
 !pragma teoz true
 box "bash process"
 participant bash
 
-box "bash process (child process)" #lightblue
+box "multitaskingAccumulatorPosix process (child process)" #lightblue
 participant "main" as main
-participant "thread1:pthread_t" as thread1
-participant "mutex:pthread_mutex_t" as mutex
-participant "semaphore:sem_t" as semaphore
+participant "producers[i]:pthread_t" as producer
+participant "consumer:pthread_t" as consumer
+participant "displayThread:pthread_t" as display
+participant "writeIdxMutex:pthread_mutex_t" as writeIdxMutex
+participant "countMutex:pthread_mutex_t" as countMutex
+participant "semFree:sem_t" as semFree
+participant "slotFull[idx]:sem_t" as slotFull
+participant "sumMutex:pthread_mutex_t" as sumMutex
 end box
 end box
 
 activate bash
-bash -> main --++ : "./preambule"
+bash -> main --++ : "./multitaskingAccumulatorPosix"
 
-main -> semaphore:sem unlink
-activate semaphore #gold
-return
-main -> semaphore:sem open
-activate semaphore #gold
-return
-note over semaphore : 0
-note over mutex : 1
+== Initialisation ==
 
-main -> thread1:pthread create
-activate thread1 #FFBBBB
-thread1 --> main
-note over thread1 : produce
+group acquisitionManagerInit()
+  main -> semFree : sem_unlink / sem_open(BUFFER_SIZE)
+  activate semFree #gold
+  return
+  note over semFree : 8
+  main -> slotFull : sem_unlink / sem_open(0) (x BUFFER_SIZE)
+  activate slotFull #gold
+  return
+  note over slotFull : 0
+  note over writeIdxMutex : 1
+  note over countMutex : 1
+  loop PRODUCER_COUNT (i = 0..3)
+    main -> producer : pthread_create(produce, i)
+    activate producer #FFBBBB
+    producer --> main
+  end
+end
 
-main -> thread1:pthread join
+group messageAdderInit()
+  note over sumMutex : 1
+  main -> consumer : pthread_create(sum)
+  activate consumer #FFBBBB
+  consumer --> main
+end
+
+group displayManagerInit()
+  main -> display : pthread_create(display)
+  activate display #FFBBBB
+  display --> main
+end
+
+main -> display : pthread_join (displayManagerJoin)
 deactivate main
 
-thread1 -> mutex:pthread mutex lock
-activate mutex #plum
+== Consommateur en attente d'un message ==
+
+consumer -> consumer : sleep(ADDER_SLEEP_TIME)
+consumer -> slotFull : getMessage() : sem_wait(slotFull[readIdx])
+note over slotFull : 0 : consumer bloqué
+
+== Production (4 producteurs en parallèle) ==
+
+producer -> producer : sleep(PRODUCER_SLEEP_TIME + rand()%5)
+producer -> producer : getInput(i, &local)
+producer -> producer : messageCheck(&local)
+
+alt checksum KO
+  producer -> producer : log erreur, message supprimé (Exigence 3)
+else checksum OK
+  producer -> semFree : sem_wait
+  activate semFree #gold
+  return
+  note over semFree : 7
+
+  producer -> writeIdxMutex : pthread_mutex_lock
+  activate writeIdxMutex #plum
+  return
+  note over writeIdxMutex : 0
+  producer -> producer : idx = writeIdx\nwriteIdx = (writeIdx + 1) % BUFFER_SIZE
+  producer -> writeIdxMutex : pthread_mutex_unlock
+  activate writeIdxMutex #plum
+  return
+  note over writeIdxMutex : 1
+
+  producer -> producer : buffer[idx] = local
+
+  group incrementProducedCount()
+    producer -> countMutex : pthread_mutex_lock
+    activate countMutex #plum
+    return
+    note over countMutex : 0
+    producer -> producer : produceCount++
+    producer -> countMutex : pthread_mutex_unlock
+    activate countMutex #plum
+    return
+    note over countMutex : 1
+  end
+
+  producer -> slotFull : sem_post(slotFull[idx])
+  note over slotFull : 1
+  slotFull --> consumer : déblocage
+  note over slotFull : 0
+end
+
+== Consommation (somme) ==
+
+consumer -> consumer : msg = buffer[readIdx]\nreadIdx = (readIdx + 1) % BUFFER_SIZE
+consumer -> semFree : sem_post
+activate semFree #gold
 return
-note over mutex : 0
+note over semFree : 8
 
-thread1 -> mutex:pthread mutex unlock
-activate mutex #plum
+consumer -> sumMutex : pthread_mutex_lock
+activate sumMutex #plum
 return
-note over mutex : 1
-
-thread1 -> semaphore:sem post
-activate semaphore #gold
+note over sumMutex : 0
+consumer -> consumer : messageAdd(&out, &msg)\nconsumeCount++ (incrementConsumeCount)
+consumer -> sumMutex : pthread_mutex_unlock
+activate sumMutex #plum
 return
-note over semaphore : 1
+note over sumMutex : 1
 
+== Affichage (asynchrone, Exigence 5) ==
 
-thread1 -> semaphore:sem wait
-activate semaphore #gold
-return 
-note over semaphore : 0
+display -> display : sleep(DISPLAY_SLEEP_TIME)
 
+loop tant que c1 != c2 (une somme a eu lieu entre les deux lectures)
+  group c1 = getConsumedCount()
+    display -> sumMutex : pthread_mutex_lock
+    activate sumMutex #plum
+    return
+    display -> display : copie de consumeCount
+    display -> sumMutex : pthread_mutex_unlock
+    activate sumMutex #plum
+    return
+  end
 
-thread1 -> thread1:pthread exit
-thread1 --> main --++
+  group s = getCurrentSum()
+    display -> sumMutex : pthread_mutex_lock
+    activate sumMutex #plum
+    return
+    note over sumMutex : 0
+    display -> display : copie de out
+    display -> sumMutex : pthread_mutex_unlock
+    activate sumMutex #plum
+    return
+    note over sumMutex : 1
+  end
 
-main -> semaphore:sem destroy
-activate semaphore #gold
+  group c2 = getConsumedCount()
+    display -> sumMutex : pthread_mutex_lock
+    activate sumMutex #plum
+    return
+    display -> display : copie de consumeCount
+    display -> sumMutex : pthread_mutex_unlock
+    activate sumMutex #plum
+    return
+  end
+end
+
+group getProducedCount()
+  display -> countMutex : pthread_mutex_lock
+  activate countMutex #plum
+  return
+  display -> display : copie de produceCount
+  display -> countMutex : pthread_mutex_unlock
+  activate countMutex #plum
+  return
+end
+
+display -> display : messageDisplay(&s)\nprint(produced, c1)
+
+== Terminaison ==
+
+display -> display : pthread_exit
+display --> main --++
+deactivate display
+main -> consumer : pthread_join (messageAdderJoin)
+deactivate main
+consumer -> consumer : pthread_exit
+consumer --> main --++
+deactivate consumer
+loop PRODUCER_COUNT
+  main -> producer : pthread_join (acquisitionManagerJoin)
+  producer -> producer : pthread_exit
+  producer --> main
+end
+deactivate producer
+
+main -> semFree : sem_close / sem_unlink
+activate semFree #gold
 return
+main -> slotFull : sem_close / sem_unlink (x BUFFER_SIZE)
+activate slotFull #gold
+return
+main -> writeIdxMutex : pthread_mutex_destroy
+main -> countMutex : pthread_mutex_destroy
+main -> sumMutex : pthread_mutex_destroy
 
-main -> bash --++:return ERROR_SUCCESS
+main -> bash --++ : return ERROR_SUCCESS
 
 @enduml
