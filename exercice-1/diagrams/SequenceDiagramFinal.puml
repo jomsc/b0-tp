@@ -11,7 +11,7 @@ participant "displayThread:pthread_t" as display
 participant "writeIdxMutex:pthread_mutex_t" as writeIdxMutex
 participant "countMutex:pthread_mutex_t" as countMutex
 participant "semFree:sem_t" as semFree
-participant "slotFull[idx]:sem_t" as slotFull
+participant "semFull:sem_t" as semFull
 participant "sumMutex:pthread_mutex_t" as sumMutex
 end box
 end box
@@ -26,10 +26,10 @@ group acquisitionManagerInit()
   activate semFree #gold
   return
   note over semFree : 8
-  main -> slotFull : sem_unlink / sem_open(0) (x BUFFER_SIZE)
-  activate slotFull #gold
+  main -> semFull : sem_unlink / sem_open(0)
+  activate semFull #gold
   return
-  note over slotFull : 0
+  note over semFull : 0
   note over writeIdxMutex : 1
   note over countMutex : 1
   loop PRODUCER_COUNT (i = 0..3)
@@ -58,8 +58,8 @@ deactivate main
 == Consommateur en attente d'un message ==
 
 consumer -> consumer : sleep(ADDER_SLEEP_TIME)
-consumer -> slotFull : getMessage() : sem_wait(slotFull[readIdx])
-note over slotFull : 0 : consumer bloqué
+consumer -> semFull : getMessage() : sem_wait(semFull)
+note over semFull : 0 : consumer bloqué
 
 == Production (4 producteurs en parallèle) ==
 
@@ -79,13 +79,11 @@ else checksum OK
   activate writeIdxMutex #plum
   return
   note over writeIdxMutex : 0
-  producer -> producer : idx = writeIdx\nwriteIdx = (writeIdx + 1) % BUFFER_SIZE
+  producer -> producer : idx = writeIdx\nwriteIdx = (writeIdx + 1) % BUFFER_SIZE\nbuffer[idx] = local
   producer -> writeIdxMutex : pthread_mutex_unlock
   activate writeIdxMutex #plum
   return
   note over writeIdxMutex : 1
-
-  producer -> producer : buffer[idx] = local
 
   group incrementProducedCount()
     producer -> countMutex : pthread_mutex_lock
@@ -99,10 +97,10 @@ else checksum OK
     note over countMutex : 1
   end
 
-  producer -> slotFull : sem_post(slotFull[idx])
-  note over slotFull : 1
-  slotFull --> consumer : déblocage
-  note over slotFull : 0
+  producer -> semFull : sem_post
+  note over semFull : 1
+  semFull --> consumer : déblocage
+  note over semFull : 0
 end
 
 == Consommation (somme) ==
@@ -193,8 +191,8 @@ deactivate producer
 main -> semFree : sem_close / sem_unlink
 activate semFree #gold
 return
-main -> slotFull : sem_close / sem_unlink (x BUFFER_SIZE)
-activate slotFull #gold
+main -> semFull : sem_close / sem_unlink
+activate semFull #gold
 return
 main -> writeIdxMutex : pthread_mutex_destroy
 main -> countMutex : pthread_mutex_destroy

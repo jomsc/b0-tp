@@ -39,8 +39,6 @@ static void *display( void *parameters )
 	while(consumed < TOTAL_MESSAGES){
 		sleep(DISPLAY_SLEEP_TIME);
 
-		//Coherent snapshot of {sum, consumed count}:
-		//retry if a sum happened between the two reads
 		do {
 			c1 = getConsumedCount();
 			s = getCurrentSum();

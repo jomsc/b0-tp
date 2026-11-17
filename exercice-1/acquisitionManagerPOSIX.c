@@ -35,15 +35,15 @@ static void *produce(void *params);
 */
 //Counts the free slots of the buffer (init BUFFER_SIZE)
 static sem_t *semFree;
-//One event per slot: the slot is filled (init 0)
-static sem_t *slotFull[BUFFER_SIZE];
-//Protects the write index reservation
+//Counts the filled slots of the buffer (init 0)
+static sem_t *semFull;
+//Protects the slot reservation and the slot write: slots are filled in index order
 static pthread_mutex_t writeIdxMutex = PTHREAD_MUTEX_INITIALIZER;
 //Protects produceCount
 static pthread_mutex_t countMutex = PTHREAD_MUTEX_INITIALIZER;
 
 #define SEM_FREE_NAME "/acq_semFree"
-#define SEM_FULL_NAME_FORMAT "/acq_slotFull_%u"
+#define SEM_FULL_NAME "/acq_semFull"
 
 /*
 * Creates the synchronization elements.
@@ -58,9 +58,6 @@ static void incrementProducedCount(void);
 
 static unsigned int createSynchronizationObjects(void)
 {
-	unsigned int i;
-	char name[32];
-
 	sem_unlink(SEM_FREE_NAME);
 	semFree = sem_open(SEM_FREE_NAME, O_CREAT, 0644, BUFFER_SIZE);
 	if (semFree == SEM_FAILED)
@@ -69,16 +66,12 @@ static unsigned int createSynchronizationObjects(void)
 		return ERROR_INIT;
 	}
 
-	for (i = 0; i < BUFFER_SIZE; i++)
+	sem_unlink(SEM_FULL_NAME);
+	semFull = sem_open(SEM_FULL_NAME, O_CREAT, 0644, 0);
+	if (semFull == SEM_FAILED)
 	{
-		snprintf(name, sizeof(name), SEM_FULL_NAME_FORMAT, i);
-		sem_unlink(name);
-		slotFull[i] = sem_open(name, O_CREAT, 0644, 0);
-		if (slotFull[i] == SEM_FAILED)
-		{
-			perror("[acquisitionManager]sem_open slotFull");
-			return ERROR_INIT;
-		}
+		perror("[acquisitionManager]sem_open semFull");
+		return ERROR_INIT;
 	}
 	printf("[acquisitionManager]Semaphore created\n");
 	return ERROR_SUCCESS;
@@ -102,8 +95,9 @@ unsigned int getProducedCount(void)
 
 MSG_BLOCK getMessage(void){
 	MSG_BLOCK msg;
-	//Wait until the next slot is filled
-	sem_wait(slotFull[readIdx]);
+	//Wait until at least one slot is filled. Slots are filled in index
+	//order (write under writeIdxMutex), so the slot at readIdx is complete.
+	sem_wait(semFull);
 	msg = buffer[readIdx];
 	readIdx = (readIdx + 1) % BUFFER_SIZE;
 	//The slot is free again
@@ -134,7 +128,6 @@ unsigned int acquisitionManagerInit(void)
 void acquisitionManagerJoin(void)
 {
 	unsigned int i;
-	char name[32];
 	for (i = 0; i < PRODUCER_COUNT; i++)
 	{
 		pthread_join(producers[i], NULL);
@@ -142,12 +135,8 @@ void acquisitionManagerJoin(void)
 
 	sem_close(semFree);
 	sem_unlink(SEM_FREE_NAME);
-	for (i = 0; i < BUFFER_SIZE; i++)
-	{
-		snprintf(name, sizeof(name), SEM_FULL_NAME_FORMAT, i);
-		sem_close(slotFull[i]);
-		sem_unlink(name);
-	}
+	sem_close(semFull);
+	sem_unlink(SEM_FULL_NAME);
 	pthread_mutex_destroy(&writeIdxMutex);
 	pthread_mutex_destroy(&countMutex);
 	printf("[acquisitionManager]Semaphore cleaned\n");
@@ -176,18 +165,17 @@ void *produce(void* params)
 		//Wait for a free slot
 		sem_wait(semFree);
 
-		//Minimal critical section: reserve a slot
+		//Critical section: reserve a slot and write it, so that slots
+		//are always completed in index order (required by semFull)
 		pthread_mutex_lock(&writeIdxMutex);
 		idx = writeIdx;
 		writeIdx = (writeIdx + 1) % BUFFER_SIZE;
-		pthread_mutex_unlock(&writeIdxMutex);
-
-		//Write outside of the critical section (parallel writers)
 		buffer[idx] = local;
+		pthread_mutex_unlock(&writeIdxMutex);
 
 		//Count before signaling: produced >= consumed at any time
 		incrementProducedCount();
-		sem_post(slotFull[idx]);
+		sem_post(semFull);
 	}
 	printf("[acquisitionManager] producer %u termination\n", id);
 	pthread_exit(NULL);

@@ -22,7 +22,7 @@ AcquisitionManager : - readIdx: Integer
 AcquisitionManager : - writeIdxMutex: pthread_mutex_t
 AcquisitionManager : - countMutex: pthread_mutex_t
 AcquisitionManager : - semFree: sem_t (init BUFFER_SIZE)
-AcquisitionManager : - slotFull[BUFFER_SIZE]: sem_t (init 0)
+AcquisitionManager : - semFull: sem_t (init 0)
 AcquisitionManager : - producedCount: Integer
 AcquisitionManager : - produce()
 AcquisitionManager : - createSynchronizationObjects(): Integer
